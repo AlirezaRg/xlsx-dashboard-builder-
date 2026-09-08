@@ -1,0 +1,16 @@
+# build artifacts
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+
+# generated / local
+icon.ico
+icon_preview.png
+kpe_preview.png
+kpe.png
+watermark.png
+خروجی گزارش جذب*.xlsx
+*.xlsx
+!sample.xlsx
