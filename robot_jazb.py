@@ -856,9 +856,6 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
     for rr in range(41, 53):
         ws.row_dimensions[rr].height = 18
 
-    ws.cell(54, 2, "این گزارش به‌صورت خودکار توسط «ربات جذب» تولید شده است.").font = \
-        Font(size=9, color="8A94A0")
-
     _one_page(ws, "A1:M55")
 
     wb.save(out_path)
