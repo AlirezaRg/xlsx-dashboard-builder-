@@ -184,10 +184,22 @@ def read_rows(path):
         "month": col("ماه"),
     }
     data = []
+    seq = 0
     for r in rows[1:]:
-        if idx["radif"] is None or r[idx["radif"]] is None:
+        # ردیفِ خالی را دیگر نادیده نمی‌گیریم — خیلی از ردیف‌های واقعی (اسم/پست/تاریخ دارند)
+        # فقط عدد ترتیبی جلویشان نوشته نشده. سطر را فقط وقتی رد می‌کنیم که واقعاً خالی باشد
+        # (نه ردیف، نه نام، نه نام خانوادگی، نه تاریخ شروع).
+        has_name = idx["name"] is not None and r[idx["name"]] not in (None, "")
+        has_family = idx["family"] is not None and r[idx["family"]] not in (None, "")
+        has_radif = idx["radif"] is not None and r[idx["radif"]] not in (None, "")
+        has_start = idx["start_date"] is not None and r[idx["start_date"]] not in (None, "")
+        if not (has_name or has_family or has_radif or has_start):
             continue
-        data.append({k: (r[i] if i is not None else None) for k, i in idx.items()})
+        seq += 1
+        rec = {k: (r[i] if i is not None else None) for k, i in idx.items()}
+        if not has_radif:
+            rec["radif"] = seq        # شمارهٔ جایگزین، فقط برای نمایش در شیت «زمان جذب»
+        data.append(rec)
     return data
 
 
