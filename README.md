@@ -31,9 +31,13 @@ needed for end users.
 - **Company‑logo watermark** — supply a transparent PNG and it is placed,
   **unmodified**, as a full‑page background on every sheet and every
   printed page (logo included at the bottom, not clipped).
-- **Year filter** — type a single Jalali year (`1405`) or a range
-  (`1404-1405`); every metric, chart and title is recomputed for that
-  window, and the year is added to the output filename.
+- **Year & month filter** — type a single Jalali year (`1405`) or a range
+  (`1404-1405`), and/or a month (`شهریور`, `6`), a range (`تیر تا شهریور`,
+  `4-6`) or a list (`4,5,6`). Year and month combine with AND
+  (e.g. `1405` + `شهریور` = Shahrivar 1405 only). A reversed range wraps
+  around the year (`دی تا فروردین` = 10, 11, 12, 1). Every metric, chart,
+  the banner and the auto‑written analysis are recomputed for that window,
+  and the selection is added to the output filename.
 - **Print‑ready** — each sheet is set to A4, fit‑to‑width, short tables
   vertically centered.
 
@@ -44,7 +48,7 @@ needed for end users.
 1. Put **`جذب.exe`** anywhere (e.g. the Desktop).
 2. Double‑click it.
 3. **Choose Excel file** → pick your data workbook.
-4. *(optional)* **Choose logo** and/or type a **year**.
+4. *(optional)* **Choose logo**, type a **year** and/or a **month**.
 5. **Build report.**
 6. **Open output file** — it is written next to the input as
    `خروجی گزارش جذب - <name>.xlsx`.
@@ -63,7 +67,7 @@ header text (order does not matter). Recognized headers:
 |---|---|
 | `ردیف` | row id (required — rows without it are skipped) |
 | `نام`, `نام خانوادگی` | person name (duration sheet) |
-| `شروع به کار` | “start” date — a row counts as *completed* when this is a valid Jalali date; its year drives the year filter |
+| `شروع به کار` | “start” date — a row counts as *completed* when this is a valid Jalali date; its year and month drive the year / month filters (the `ماه` column is only a fallback when the date is unreadable) |
 | `تاریخ درخواست` | “request” date — used with the start date for the duration (days) |
 | `ماه` | month number (1–12), fiscal order مهر→شهریور |
 | `محل خدمت` | breakdown: by project |
@@ -103,7 +107,13 @@ as a **transparent** PNG.
 python robot_jazb.py "path\to\input.xlsx"
 python robot_jazb.py "path\to\input.xlsx" 1405
 python robot_jazb.py "path\to\input.xlsx" 1404-1405
+python robot_jazb.py "path\to\input.xlsx" 1405 --month شهریور
+python robot_jazb.py "path\to\input.xlsx" 1405 -m 4-6
+python robot_jazb.py "path\to\input.xlsx" --month "تیر تا شهریور"
 ```
+
+`--month` / `-m` accepts a month name or number, a range (`4-6`,
+`تیر تا شهریور`) or a list (`4,5,6`); without a year it applies to all years.
 
 With no path it picks the most recent `*.xlsx` next to the script.
 

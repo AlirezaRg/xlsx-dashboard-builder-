@@ -215,13 +215,40 @@ def available_years(data):
     return sorted(ys)
 
 
-def build_metrics(data, years=None):
-    """years: مجموعه/بازهٔ سال‌های شمسیِ «شروع به کار». None = همهٔ سال‌ها."""
+def _start_month(rec):
+    """ماهِ شمسیِ شروع به کار (۱..۱۲). از خودِ تاریخ می‌خوانیم تا با فیلترِ سال هم‌منبع باشد؛
+    اگر تاریخ خراب بود، از ستون «ماه» کمک می‌گیریم."""
+    m = re.match(r"\d{4}\s*[/\-.]\s*(\d{1,2})", fa2en(rec["start_date"]))
+    if m and 1 <= int(m.group(1)) <= 12:
+        return int(m.group(1))
+    try:
+        v = int(fa2en(rec["month"]))
+        return v if 1 <= v <= 12 else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _month_label(mset):
+    """برچسبِ فارسیِ ماه‌های انتخاب‌شده (مثلاً «شهریور» یا «تیر تا شهریور» یا «تیر، آذر»)."""
+    ms = sorted(mset)
+    if len(ms) == 1:
+        return MONTH_NAME[ms[0]]
+    if ms == list(range(ms[0], ms[-1] + 1)):
+        return f"{MONTH_NAME[ms[0]]} تا {MONTH_NAME[ms[-1]]}"
+    return "، ".join(MONTH_NAME[m] for m in ms)
+
+
+def build_metrics(data, years=None, months=None):
+    """years : مجموعهٔ سال‌های شمسیِ «شروع به کار» (None = همهٔ سال‌ها).
+    months: مجموعهٔ ماه‌های شمسی ۱..۱۲ (None = همهٔ ماه‌ها). با years «و» می‌شود."""
     yset = set(years) if years else None
+    mset = set(months) if months else None
     if yset is not None:
         data = [r for r in data if _start_year(r) in yset]
-        if not data:
-            raise ValueError("در سالِ انتخاب‌شده هیچ رکوردی پیدا نشد.")
+    if mset is not None:
+        data = [r for r in data if _start_month(r) in mset]
+    if (yset is not None or mset is not None) and not data:
+        raise ValueError("در سال/ماهِ انتخاب‌شده هیچ رکوردی پیدا نشد.")
 
     total = len(data)
     hired, not_hired = [], 0
@@ -284,14 +311,21 @@ def build_metrics(data, years=None):
     span = ""
     if by_month and years:
         y1, y2 = min(years), max(years)
-        span = (f"{by_month[0][0]} {y1} تا {by_month[-1][0]} {y2}"
-                if y1 != y2 else f"{by_month[0][0]} تا {by_month[-1][0]} {y1}")
+        if len(by_month) == 1:                      # فقط یک ماه (مثلاً فیلترِ ماه)
+            span = (f"{by_month[0][0]} {y1}" if y1 == y2
+                    else f"{by_month[0][0]} {y1} تا {y2}")
+        else:
+            span = (f"{by_month[0][0]} {y1} تا {by_month[-1][0]} {y2}"
+                    if y1 != y2 else f"{by_month[0][0]} تا {by_month[-1][0]} {y1}")
 
     if yset:
         ys = sorted(yset)
         year_label = f"سال {ys[0]}" if len(ys) == 1 else f"سال‌های {ys[0]} تا {ys[-1]}"
     else:
         year_label = "همهٔ سال‌ها"
+    if mset:
+        # مثلاً «سال ۱۴۰۵ • شهریور»؛ اگر سال انتخاب نشده «همهٔ سال‌ها • شهریور»
+        year_label += f" • {_month_label(mset)}"
 
     nh = len(hired)
     A = []
@@ -301,7 +335,7 @@ def build_metrics(data, years=None):
     else:
         A.append(f"مجموعاً {nh} نفر از {total} متقاضیِ ثبت‌شده جذب شده‌اند "
                  f"(نرخ جذب {metrics_pct(nh, total)}).")
-    if by_month:
+    if len(by_month) > 1:                           # با یک ماه، «پرتراکم‌ترین ماه» بی‌معنی است
         pk = max(by_month, key=lambda x: x[1])
         A.append(f"پرتراکم‌ترین ماهِ جذب، {pk[0]} با {pk[1]} نفر "
                  f"({metrics_pct(pk[1], nh)} کل) بوده است.")
@@ -331,6 +365,7 @@ def build_metrics(data, years=None):
 
     return {
         "year_label": year_label,
+        "month_filtered": bool(mset),
         "total": total,
         "hired": nh,
         "not_hired": not_hired,
@@ -669,8 +704,8 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
     _watermark(ws, wm_logo, ["A2"], 1000)     # پس‌زمینهٔ تمام‌صفحه
 
     parts = [metrics.get("year_label") or "همهٔ سال‌ها"]
-    if metrics.get("span"):
-        parts.append(f"دورهٔ {metrics['span']}")
+    if metrics.get("span") and not metrics.get("month_filtered"):
+        parts.append(f"دورهٔ {metrics['span']}")     # با فیلترِ ماه، برچسب خودش ماه را دارد
     parts.append("واحد منابع انسانی")
     brand_banner(ws, 1, "گزارش مدیریتی جذب نیروی انسانی", 2, 12,
                  sub="  •  ".join(parts))
@@ -889,6 +924,46 @@ def parse_years(text):
     return set(nums)
 
 
+_MONTH_KEYS = {norm_key(n): i for i, n in MONTH_NAME.items()}
+
+
+def _month_token(tok):
+    """یک ماه (عدد ۱..۱۲ یا نام فارسی) → عدد. نامعتبر → ValueError."""
+    tok = tok.strip()
+    if tok.isdigit():
+        n = int(tok)
+    else:
+        n = _MONTH_KEYS.get(norm_key(tok))
+    if n is None or not 1 <= n <= 12:
+        raise ValueError(f"ماهِ نامعتبر: «{tok}» (عدد ۱ تا ۱۲ یا نام ماه، مثل شهریور)")
+    return n
+
+
+def parse_months(text):
+    """ورودیِ ماه → مجموعهٔ عددهای ۱..۱۲؛ خالی/«همه» → None.
+
+    نمونه‌ها:  6  |  شهریور  |  4-6  |  تیر تا شهریور  |  4,5,6  |  تیر، مرداد
+    بازهٔ معکوس دورِ سال می‌چرخد:  دی تا فروردین = ۱۰،۱۱،۱۲،۱
+    """
+    if text is None:
+        return None
+    t = fa2en(text)
+    if not t or t in ("همه", "all", "*"):
+        return None
+    t = re.sub(r"\s+تا\s+|(?<=\d)تا(?=\d)", "-", t)     # «تا» → خط‌تیره
+    t = re.sub(r"\s*[-–—]\s*", "-", t)
+    out = set()
+    for tok in re.split(r"[,،;؛\s]+", t):
+        if not tok:
+            continue
+        if "-" in tok:
+            a, b = (_month_token(x) for x in tok.split("-", 1))
+            out |= set(range(a, b + 1)) if a <= b else set(range(a, 13)) | set(range(1, b + 1))
+        else:
+            out.add(_month_token(tok))
+    return out or None
+
+
 def find_watermark(near):
     """تصویرِ آمادهٔ پس‌زمینه کنار ورودی/برنامه/دسکتاپ."""
     dirs = {os.path.dirname(os.path.abspath(near)),
@@ -904,19 +979,22 @@ def find_watermark(near):
     return None
 
 
-def make_report(src, folder=None, logo_path=None, years=None, wm_path=None):
+def make_report(src, folder=None, logo_path=None, years=None, wm_path=None, months=None):
     """کل مسیر: خواندن → محاسبه → ساخت خروجی. مسیر فایل خروجی را برمی‌گرداند.
-    years: مجموعهٔ سال‌های شمسیِ «شروع به کار» (یا None برای همه).
+    years : مجموعهٔ سال‌های شمسیِ «شروع به کار» (یا None برای همه).
+    months: مجموعهٔ ماه‌های شمسی ۱..۱۲ (یا None برای همه).
     wm_path: تصویرِ آمادهٔ پس‌زمینه (بدون تغییر استفاده می‌شود)."""
     data = read_rows(src)
-    metrics, data = build_metrics(data, years)
+    metrics, data = build_metrics(data, years, months)
     base = os.path.splitext(os.path.basename(src))[0]
     folder = folder or os.path.dirname(os.path.abspath(src))
     wm_path = wm_path or find_watermark(src)
     tag = ""
     if years:
         ys = sorted(years)
-        tag = f" - {ys[0]}" if len(ys) == 1 else f" - {ys[0]} تا {ys[-1]}"
+        tag += f" - {ys[0]}" if len(ys) == 1 else f" - {ys[0]} تا {ys[-1]}"
+    if months:
+        tag += f" - {_month_label(set(months))}"
     out = os.path.join(folder, f"خروجی گزارش جذب - {base}{tag}.xlsx")
     try:
         build_output(metrics, data, out, logo_path, wm_path)
@@ -928,12 +1006,22 @@ def make_report(src, folder=None, logo_path=None, years=None, wm_path=None):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not re.fullmatch(r"\d{4}(\s*-\s*\d{4})?", a)]
-    yrs = next((parse_years(a) for a in sys.argv[1:]
+    argv = sys.argv[1:]
+    # --month / -m  <مقدار>   مثل:  --month شهریور   یا   -m 4-6
+    mtext = None
+    for flag in ("--month", "-m"):
+        if flag in argv:
+            i = argv.index(flag)
+            mtext = argv[i + 1] if i + 1 < len(argv) else None
+            argv = argv[:i] + argv[i + 2:]
+    mons = parse_months(mtext)
+    args = [a for a in argv if not re.fullmatch(r"\d{4}(\s*-\s*\d{4})?", a)]
+    yrs = next((parse_years(a) for a in argv
                 if re.fullmatch(r"\d{4}(\s*-\s*\d{4})?", a)), None)
     src = args[0] if args and os.path.isfile(args[0]) else find_input()
-    print(f"ورودی : {src}   |   سال: {yrs or 'همه'}")
-    out, m = make_report(src, years=yrs)
+    print(f"ورودی : {src}   |   سال: {yrs or 'همه'}   |   ماه: "
+          f"{_month_label(mons) if mons else 'همه'}")
+    out, m = make_report(src, years=yrs, months=mons)
     print(f"خروجی: {out}")
     print(f"  تعداد نفرات = {m['total']}  |  تعداد جذب = {m['hired']}  |  نرخ جذب = {m['rate']:.1f}%")
     if m["avg_days"] is not None:

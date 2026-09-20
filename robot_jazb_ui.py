@@ -92,8 +92,8 @@ class App(tk.Tk):
         super().__init__()
         self.title("ربات گزارش جذب")
         self.configure(bg=BG)
-        self.geometry("660x670")
-        self.minsize(620, 620)
+        self.geometry("660x730")
+        self.minsize(620, 680)
         self.src_path = tk.StringVar(value="")
         self.logo_path = tk.StringVar(value="")
         self.wm_path = tk.StringVar(value="")
@@ -186,6 +186,17 @@ class App(tk.Tk):
         self.ent_year.pack(side="right", padx=10, ipady=4)
         tk.Label(row3, text="خالی = همه   •   یک سال: 1405   •   بازه: 1404-1405",
                  font=("Tahoma", 8), bg=CARD, fg=MUTED).pack(side="right")
+
+        # ---- ماه (اختیاری) — همراه با سال «و» می‌شود
+        row3b = tk.Frame(c3, bg=CARD)
+        row3b.pack(fill="x", padx=12, pady=(0, 12))
+        tk.Label(row3b, text="ماه (اختیاری):", font=FONT_B, bg=CARD, fg=INK).pack(side="right")
+        self.ent_month = tk.Entry(row3b, font=FONT, width=18, justify="center",
+                                  relief="solid", bd=1, bg="#F6F8FB")
+        self.ent_month.pack(side="right", padx=10, ipady=4)
+        tk.Label(row3b, text="خالی = همه   •   شهریور یا 6   •   بازه: تیر تا شهریور  /  4-6",
+                 font=("Tahoma", 8), bg=CARD, fg=MUTED).pack(side="right")
+
         self.lbl_year = tk.Label(c3, text="", font=("Tahoma", 8), bg=CARD, fg=MUTED,
                                  anchor="e")
         self.lbl_year.pack(fill="x", padx=12, pady=(0, 8))
@@ -285,11 +296,15 @@ class App(tk.Tk):
         try:
             self.say("در حال خواندن شیت «لیست جذب» …")
             years = core.parse_years(self.ent_year.get())
+            months = core.parse_months(self.ent_month.get())     # ورودیِ بد → ValueError → پیامِ خطا
             if years:
                 self.say(f"فیلتر سال: {sorted(years)}")
+            if months:
+                self.say(f"فیلتر ماه: {core._month_label(months)}")
             out, m = core.make_report(self.src_path.get(),
                                       logo_path=self.logo_path.get() or None,
                                       years=years,
+                                      months=months,
                                       wm_path=self.wm_path.get() or None)
             self.out_path = out
             self.say("")
