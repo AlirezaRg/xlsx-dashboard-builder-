@@ -18,7 +18,8 @@ import sys, os, glob, re, datetime, tempfile, statistics
 from collections import Counter
 
 import openpyxl
-from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.chart import BarChart, LineChart, PieChart, Reference
+from openpyxl.chart.marker import Marker
 from openpyxl.chart.label import DataLabelList, DataLabel
 from openpyxl.drawing.text import RegularTextRun
 from openpyxl.chart.text import RichText, Text
@@ -549,6 +550,41 @@ def bar_chart(ws, title, min_row, max_row, cat_col=1, val_col=2, width=20, heigh
     return ch
 
 
+def line_chart(ws, title, min_row, max_row, cat_col=1, val_col=2, width=18, height=6.5,
+               color=NAVY):
+    """نمودار خطی با نشانه (Excel: «2‑D Line with Markers») از روی همان helper نمودار میله‌ای.
+    عددِ فارسیِ هر نقطه داخل برچسبِ محور (نام (عدد)) است؛ محورِ عمودی حذف می‌شود."""
+    ch = LineChart()
+    ch.title = title
+    ch.height = height
+    ch.width = width
+    ch.legend = None
+    data = Reference(ws, min_col=val_col, min_row=min_row, max_row=max_row)
+    cats = Reference(ws, min_col=cat_col, min_row=min_row + 1, max_row=max_row)
+    ch.add_data(data, titles_from_data=True)
+    ch.set_categories(cats)
+    s = ch.series[0]
+    s.smooth = False
+    s.graphicalProperties = GraphicalProperties()
+    s.graphicalProperties.line = LineProperties(solidFill=color, w=31750)     # ۲٫۵pt
+    s.marker = Marker(symbol="circle", size=8)
+    s.marker.graphicalProperties = GraphicalProperties(solidFill=color)
+    s.marker.graphicalProperties.line = LineProperties(solidFill="FFFFFF", w=12700)
+    ch.dLbls = DataLabelList()
+    _clean_labels(ch.dLbls)
+    ch.dLbls.delete = True
+    ch.x_axis.delete = False
+    ch.y_axis.delete = True
+    ch.x_axis.tickLblPos = "low"
+    ch.x_axis.txPr = _axis_text(900, -2700000)
+    ch.x_axis.spPr = GraphicalProperties(ln=LineProperties(solidFill="C9D6E4"))
+    ch.y_axis.majorGridlines = ChartLines(
+        spPr=GraphicalProperties(ln=LineProperties(solidFill="EDF1F6")))
+    ch.y_axis.spPr = GraphicalProperties(ln=LineProperties(noFill=True))
+    _frame(ch)
+    return ch
+
+
 def pie_chart(ws, title, min_row, max_row, cat_col=1, val_col=2, width=13, height=9,
               values=None):
     ch = PieChart()
@@ -830,22 +866,25 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
         long_tbl = bool(bar_top) or n > 20          # پست: فهرست بلند
         bar_rows = rows if bar_top is None else rows[:bar_top]
 
-        # ---------- چیدمان: [جدول + نمودارِ میله‌ای] به‌صورت یک بلوک وسط صفحه ----------
+        # ---------- چیدمان: [جدول + نمودارِ میله‌ای + نمودارِ خطی] به‌صورت یک بلوک ----------
         # (ارتفاع‌ها بر حسب point؛ ردیفِ معمولی = ۱۵pt ؛ صفحهٔ A4 عمودی ≈ ۷۸۴pt)
-        SH_CH_W, SH_CH_H = 18.2, 7.5                 # اندازهٔ نمودار روی خودِ شیت (cm)
-        ch_pt = SH_CH_H / 2.54 * 72
+        SH_CH_W = 18.2                               # پهنای نمودارها روی خودِ شیت (cm)
         table_pt = 34 + 28 + 24 * n
         if long_tbl:
-            # فهرست بلند: نمودار بالای صفحهٔ اول، جدول زیرش (چند صفحه می‌شود)
-            chart_row, tstart, fit_h = 2, 22, 0        # نمودارِ ۹cm ≈ ۱۷ ردیف + فاصله
+            # فهرست بلند: دو نمودار بالای صفحهٔ اول، جدول زیرشان (چند صفحه می‌شود)
+            BAR_H, LINE_H = 8.0, 7.5
+            chart_row, line_row, tstart, fit_h = 2, 19, 35, 0
             parea = f"B1:J{tstart + n + 4}"
         else:
-            block_pt = table_pt + 30 + ch_pt
+            BAR_H, LINE_H = 6.8, 6.4
+            stack_pt = (BAR_H + LINE_H) / 2.54 * 72 + 12
+            block_pt = table_pt + 30 + stack_pt
             tstart = max(2, 1 + round((PAGE_PT - block_pt) / 2 / 15))
             chart_row = tstart + n + 4               # ۲ ردیف فاصله زیر آخرین سطر جدول
+            line_row = chart_row + 14                # نمودار میله‌ای ≈ ۱۳ ردیف
             after_pt = max(0, PAGE_PT - (tstart - 1) * 15 - table_pt)
-            parea = f"B1:J{tstart + n + 1 + max(int(after_pt // 15), 20)}"
-            fit_h = 1
+            parea = (f"B1:J{max(tstart + n + 1 + max(int(after_pt // 15), 20), line_row + 14)}")
+            fit_h = 1                                # اگر بلوک بلندتر از برگه شد، کمی کوچک می‌شود
         hr, last = write_table(s, title, headers, rows,
                                start_row=tstart, start_col=5, big=True)
         # ستون‌ها را جوری تنظیم می‌کنیم که پهنای چاپ ≈ یک برگهٔ A4 شود
@@ -876,12 +915,14 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
             s.column_dimensions[get_column_letter(ci)].hidden = True
         bar_vals = [v for _, v in bar_rows]
 
-        # ---- نمودارِ میله‌ای روی خودِ شیت، از روی همین جدول
+        # ---- روی خودِ شیت، از روی همین جدول: نمودارِ میله‌ای + نمودارِ خطی
         if bar_rows:
             sh_bar = bar_chart(s, "تعداد " + title, h0, bh_last, cat_col=HB_CAT,
-                               val_col=HB_VAL, width=SH_CH_W,
-                               height=SH_CH_H + (1.5 if long_tbl else 0), values=bar_vals)
+                               val_col=HB_VAL, width=SH_CH_W, height=BAR_H, values=bar_vals)
             s.add_chart(sh_bar, f"B{chart_row}")
+            sh_line = line_chart(s, "نمودار خطیِ " + title, h0, bh_last, cat_col=HB_CAT,
+                                 val_col=HB_VAL, width=SH_CH_W, height=LINE_H)
+            s.add_chart(sh_line, f"B{line_row}")
 
         # ---- داشبورد
         strip(anchor[0], title)

@@ -26,9 +26,10 @@ needed for end users.
   A single small item keeps its own name instead of being called “other”.
 - **Per‑breakdown sheets** — one styled table per dimension
   (by month / by project / by unit / by role), big fonts, **plus a bar
-  chart built from that same table** right under it. Table + chart are
-  laid out as one block, vertically centered on a single A4 page (the long
-  role list puts the chart on top and paginates).
+  chart and a line chart (2‑D Line with Markers) built from that same
+  table** right under it. Table + charts are laid out as one block on a
+  single A4 page (the long role list puts the two charts on top and
+  paginates).
 - **Duration sheet** — for every row, the gap in days between a “request
   date” column and a “start date” column. There is **no upper cap** (a
   request date six years before the start is computed too). A start date
