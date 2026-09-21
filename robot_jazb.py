@@ -616,7 +616,7 @@ def pie_chart(ws, title, min_row, max_row, cat_col=1, val_col=2, width=13, heigh
 def split_small(rows, min_pct=3.0, keep_max=8):
     """(اسلایس‌های اصلی ، مواردی که در «سایر» جمع می‌شوند).
 
-    اگر فقط «یک» مورد کوچک باشد، جمع‌کردنش در «سایر» بی‌معنی است؛ همان با اسمِ خودش می‌ماند.
+    هر موردِ کوچک‌تر از min_pct (حتی اگر فقط یکی باشد) در «سایر» می‌رود و توضیحش زیرِ نمودار می‌آید.
     """
     total = sum(v for _, v in rows) or 1
     big, small = [], []
@@ -625,8 +625,6 @@ def split_small(rows, min_pct=3.0, keep_max=8):
             big.append((name, v))
         else:
             small.append((name, v))
-    if len(small) == 1:
-        big.append(small.pop())
     return big, small
 
 

@@ -23,7 +23,7 @@ needed for end users.
   `سایر`; a caption next to the pie lists exactly what is inside it, how
   many people each item is and its share, and their total
   (e.g. `«سایر» = ۱٫۵٪ (۵ نفر) شامل: اروند: ۳ نفر (۰٫۹٪) • کیش: ۱ نفر (۰٫۳٪) • …`).
-  A single small item keeps its own name instead of being called “other”.
+  It is shown even when “other” contains just one item.
 - **Per‑breakdown sheets** — one styled table per dimension
   (by month / by project / by unit / by role), big fonts, **plus a bar
   chart and a line chart (2‑D Line with Markers) built from that same
