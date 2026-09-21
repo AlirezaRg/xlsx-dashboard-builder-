@@ -4,7 +4,7 @@ Turn a plain Persian data sheet into a polished, print‑ready Excel workbook:
 KPI cards, bar charts for **counts**, pie charts for **percentages**, an
 auto‑written management one‑pager, per‑row date‑gap calculations, a full
 RTL layout with Persian digits, an optional company‑logo watermark, and a
-year filter — all from one click.
+year / month filter — all from one click.
 
 It ships as a single Windows `.exe` with a small GUI; no Python install
 needed for end users.
@@ -19,10 +19,22 @@ needed for end users.
   category share, overall rate, average duration, …).
 - **Dashboard** (`داشبورد`) — every breakdown as a bar chart (counts) and a
   pie chart (percentages), stacked one section per printed page.
+- **“Other” slice is explained** — small slices (< 3 %) are merged into
+  `سایر`; a caption next to the pie lists exactly what is inside it, how
+  many people each item is and its share, and their total
+  (e.g. `«سایر» = ۱٫۵٪ (۵ نفر) شامل: اروند: ۳ نفر (۰٫۹٪) • کیش: ۱ نفر (۰٫۳٪) • …`).
+  A single small item keeps its own name instead of being called “other”.
 - **Per‑breakdown sheets** — one styled table per dimension
-  (by month / by project / by unit / by role), big fonts, zebra rows.
+  (by month / by project / by unit / by role), big fonts, **plus a bar
+  chart built from that same table** right under it. Table + chart are
+  laid out as one block, vertically centered on a single A4 page (the long
+  role list puts the chart on top and paginates).
 - **Duration sheet** — for every row, the gap in days between a “request
-  date” column and a “start date” column.
+  date” column and a “start date” column. There is **no upper cap** (a
+  request date six years before the start is computed too). A start date
+  *earlier* than its request date is shown as a negative number in red
+  (likely a data‑entry error) and is left out of the average; the analysis
+  reports the mean **and the median** so a few outliers are visible.
 - **All numbers rendered as Persian digits** — tables, chart labels, dates,
   KPI values, the analysis text. No Latin digits in the output.
 - **Grouping is normalized** — half‑spaces (ZWNJ), Arabic vs. Persian
@@ -65,7 +77,7 @@ header text (order does not matter). Recognized headers:
 
 | Header (in the sheet) | Used for |
 |---|---|
-| `ردیف` | row id (required — rows without it are skipped) |
+| `ردیف` | row id (optional — a row is counted if it has a row id, a name, a family name or a start date; only fully empty rows are skipped) |
 | `نام`, `نام خانوادگی` | person name (duration sheet) |
 | `شروع به کار` | “start” date — a row counts as *completed* when this is a valid Jalali date; its year and month drive the year / month filters (the `ماه` column is only a fallback when the date is unreadable) |
 | `تاریخ درخواست` | “request” date — used with the start date for the duration (days) |
@@ -97,7 +109,7 @@ as a **transparent** PNG.
 | `گزارش مدیریتی` | management one‑pager (KPIs + 2 charts + analysis) |
 | `داشبورد` | all bar + pie charts |
 | `جذب بر اساس ماه` / `... پروژه` / `... واحد` / `... پست` | one styled table each |
-| `زمان جذب` | per‑row request→start gap in days |
+| `زمان جذب` | per‑row request→start gap in days (negatives in red) |
 
 ---
 

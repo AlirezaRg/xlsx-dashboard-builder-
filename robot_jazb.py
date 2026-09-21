@@ -14,7 +14,7 @@
 پنجره (UI):  robot_jazb_ui.py  یا  جذب.exe
 """
 
-import sys, os, glob, re, datetime, tempfile
+import sys, os, glob, re, datetime, tempfile, statistics
 from collections import Counter
 
 import openpyxl
@@ -42,6 +42,11 @@ PALETTE = ["2E75B6", "E15759", "59A14F", "F28E2B", "8E44AD",
            "17BECF", "E377C2", "8C564B", "BAB0AC", "EDC948",
            "1F77B4", "D62728", "2CA02C", "FF7F0E", "9467BD"]
 PIE_COLORS = PALETTE
+
+# ستون‌های helperِ مخفیِ نمودارها روی شیت‌های تفکیکی (T..X) — خارج از ناحیهٔ چاپ
+HB_CAT, HB_VAL = 20, 21      # نمودار میله‌ای: «نام (عدد)» و عدد
+HP_CAT, HP_VAL = 23, 24      # نمودار دایره‌ای: نام و درصد
+PAGE_PT = 784                # ارتفاعِ قابل‌چاپِ یک برگهٔ A4 عمودی (point)
 
 try:
     import jdatetime
@@ -260,17 +265,20 @@ def build_metrics(data, years=None, months=None):
         else:
             not_hired += 1
 
-    durations = []
+    # زمان جذب = شروع به کار − تاریخ درخواست. هیچ سقفِ بالایی نداریم (۶ سال هم حساب می‌شود).
+    # اگر شروع «قبل از» درخواست ثبت شده باشد عددِ منفی در شیت نشان داده می‌شود
+    # (تا خطای ثبت پیدا شود) ولی وارد میانگین نمی‌شود.
+    durations, neg_days = [], 0
     for rec in data:
         g_req = parse_jalali(rec["req_date"])
         g_start = rec["_g_start"]
         if g_req and g_start:
             days = (g_start - g_req).days
-            if -5 <= days <= 1000:
-                rec["_days"] = days
+            rec["_days"] = days
+            if days >= 0:
                 durations.append(days)
             else:
-                rec["_days"] = None
+                neg_days += 1
         else:
             rec["_days"] = None
 
@@ -353,10 +361,15 @@ def build_metrics(data, years=None, months=None):
         A.append(f"در سطح واحد، «{by_unit[0][0]}» با {by_unit[0][1]} نفر بیشترین سهم را دارد.")
     if durations:
         avg = sum(durations) / len(durations)
-        s = f"میانگین زمان جذب (از تاریخ درخواست تا شروع به کار) {avg:.0f} روز است"
+        med = statistics.median(durations)
+        s = (f"میانگین زمان جذب (از تاریخ درخواست تا شروع به کار) {avg:.0f} روز "
+             f"(میانه {med:.0f} روز) است")
         s += (f" — بر پایهٔ {len(durations)} رکوردی که هر دو تاریخ را دارند."
               if len(durations) < total * 0.5 else ".")
         A.append(s)
+    if neg_days:
+        A.append(f"در {neg_days} رکورد تاریخِ شروع به کار قبل از تاریخِ درخواست ثبت شده "
+                 f"(احتمالاً اشتباهِ ثبت)؛ این موارد در شیت «زمان جذب» قرمز شده‌اند و در میانگین نیامده‌اند.")
     if not_hired:
         A.append(f"{not_hired} نفر هنوز جذب نشده یا فرایندشان در جریان است.")
     A = [en2fa(s) for s in A]
@@ -564,18 +577,51 @@ def pie_chart(ws, title, min_row, max_row, cat_col=1, val_col=2, width=13, heigh
     return ch
 
 
-def group_small(rows, min_pct=3.0, keep_max=8):
-    """اسلایس‌های کوچک‌تر از ۳٪ نمودار دایره‌ای در «سایر» جمع می‌شوند."""
+def split_small(rows, min_pct=3.0, keep_max=8):
+    """(اسلایس‌های اصلی ، مواردی که در «سایر» جمع می‌شوند).
+
+    اگر فقط «یک» مورد کوچک باشد، جمع‌کردنش در «سایر» بی‌معنی است؛ همان با اسمِ خودش می‌ماند.
+    """
     total = sum(v for _, v in rows) or 1
-    big, small = [], 0
+    big, small = [], []
     for name, v in rows:
         if (v / total * 100) >= min_pct and len(big) < keep_max:
             big.append((name, v))
         else:
-            small += v
+            small.append((name, v))
+    if len(small) == 1:
+        big.append(small.pop())
+    return big, small
+
+
+def group_small(rows, min_pct=3.0, keep_max=8):
+    """اسلایس‌های کوچک‌تر از ۳٪ نمودار دایره‌ای در «سایر» جمع می‌شوند."""
+    big, small = split_small(rows, min_pct, keep_max)
     if small:
-        big.append(("سایر", small))
+        big.append(("سایر", sum(v for _, v in small)))
     return big
+
+
+def _fa_pct(x):
+    """۱٫۵ (یک رقم اعشار، اعشارِ فارسی) — برای درصدهای کوچک."""
+    return en2fa(f"{x:.1f}").replace(".", "٫")
+
+
+def others_caption(rows, min_pct=3.0, keep_max=8, max_items=8):
+    """متنِ توضیحِ «سایر»: چه مواردی داخلش است، هرکدام چند نفر و چند درصد، و جمعشان.
+    اگر «سایر»ی در نمودار نباشد رشتهٔ خالی برمی‌گرداند."""
+    _, small = split_small(rows, min_pct, keep_max)
+    if not small:
+        return ""
+    total = sum(v for _, v in rows) or 1
+    sm_total = sum(v for _, v in small)
+    shown = small if len(small) <= max_items + 1 else small[:max_items]    # یک موردِ اضافه را «و …» نکن
+    parts = [f"{nm}: {en2fa(v)} نفر ({_fa_pct(v / total * 100)}٪)" for nm, v in shown]
+    if len(shown) < len(small):
+        rest = small[len(shown):]
+        parts.append(f"و {en2fa(len(rest))} موردِ دیگر ({en2fa(sum(v for _, v in rest))} نفر)")
+    return (f"«سایر» = {_fa_pct(sm_total / total * 100)}٪ ({en2fa(sm_total)} نفر) شامل:  "
+            + "  •  ".join(parts))
 
 
 def banner(ws, row, text, c1, c2, sub=None):
@@ -640,7 +686,13 @@ def _prep_logos(logo_path, wm_path=None):
             im = PILImage.open(logo_path).convert("RGBA")
             W = 1500
             wm = im.resize((W, max(1, int(im.height * W / im.width))), PILImage.LANCZOS)
-            wm.putalpha(wm.split()[3].point(lambda p: int(p * 0.16)))
+            a = wm.split()[3]
+            if a.getextrema()[0] > 200:
+                # لوگو زمینهٔ سفیدِ تو‌پُر دارد → سفیدها را شفاف کن، وگرنه با کم‌رنگ‌شدن
+                # یک «پردهٔ سفید» مستطیلی روی نمودارها و کارت‌ها می‌افتد.
+                from PIL import ImageChops
+                a = ImageChops.darker(a, wm.convert("L").point(lambda p: 0 if p > 235 else 255))
+            wm.putalpha(a.point(lambda p: int(p * 0.16)))
             wp = os.path.join(tempfile.gettempdir(), "_jazb_logo_wm.png")
             wm.save(wp)
         except Exception:
@@ -670,6 +722,24 @@ def _one_page(ws, area, landscape=False, fit_h=1, vcenter=True):
     ws.print_options.verticalCentered = vcenter
     for m_ in ("left", "right", "top", "bottom"):
         setattr(ws.page_margins, m_, 0.4)
+
+
+def _row_at_pt(y, tstart, n):
+    """شمارهٔ ردیفی که y پوینت پایین‌تر از بالای صفحه است (ارتفاعِ واقعیِ ردیف‌های جدول لحاظ می‌شود)."""
+    acc, r = 0.0, 1
+    while True:
+        if r == tstart:
+            h = 34
+        elif r == tstart + 1:
+            h = 28
+        elif tstart + 2 <= r <= tstart + 1 + n:
+            h = 24
+        else:
+            h = 15
+        if acc + h > y:
+            return r
+        acc += h
+        r += 1
 
 
 def _xl_img(path, height_px):
@@ -758,15 +828,24 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
         s.sheet_properties.tabColor = "9AA7B4"
         n = len(rows)
         long_tbl = bool(bar_top) or n > 20          # پست: فهرست بلند
-        PAGE_ROWS = 46                               # ردیف‌های یک برگهٔ A4 عمودی
+        bar_rows = rows if bar_top is None else rows[:bar_top]
+
+        # ---------- چیدمان: [جدول + نمودارِ میله‌ای] به‌صورت یک بلوک وسط صفحه ----------
+        # (ارتفاع‌ها بر حسب point؛ ردیفِ معمولی = ۱۵pt ؛ صفحهٔ A4 عمودی ≈ ۷۸۴pt)
+        SH_CH_W, SH_CH_H = 18.2, 7.5                 # اندازهٔ نمودار روی خودِ شیت (cm)
+        ch_pt = SH_CH_H / 2.54 * 72
+        table_pt = 34 + 28 + 24 * n
         if long_tbl:
-            tstart, fit_h = 2, 0
-            parea = f"B1:J{max(PAGE_ROWS, 4 + n * 2)}"
+            # فهرست بلند: نمودار بالای صفحهٔ اول، جدول زیرش (چند صفحه می‌شود)
+            chart_row, tstart, fit_h = 2, 22, 0        # نمودارِ ۹cm ≈ ۱۷ ردیف + فاصله
+            parea = f"B1:J{tstart + n + 4}"
         else:
-            # جدولِ کوتاه را عمودی وسطِ صفحه می‌گذاریم
-            tbl_rows = (62 + n * 24) / 15
-            tstart = max(2, round((PAGE_ROWS - tbl_rows) / 2) + 3)
-            fit_h, parea = 0, f"B1:J{PAGE_ROWS}"
+            block_pt = table_pt + 30 + ch_pt
+            tstart = max(2, 1 + round((PAGE_PT - block_pt) / 2 / 15))
+            chart_row = tstart + n + 4               # ۲ ردیف فاصله زیر آخرین سطر جدول
+            after_pt = max(0, PAGE_PT - (tstart - 1) * 15 - table_pt)
+            parea = f"B1:J{tstart + n + 1 + max(int(after_pt // 15), 20)}"
+            fit_h = 1
         hr, last = write_table(s, title, headers, rows,
                                start_row=tstart, start_col=5, big=True)
         # ستون‌ها را جوری تنظیم می‌کنیم که پهنای چاپ ≈ یک برگهٔ A4 شود
@@ -779,46 +858,68 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
                 s.add_image(_xl_img(banner_logo, 28), "A1")
             except Exception:
                 pass
-        # آرمِ کاملِ KPE — وسط‌چین و اندازه‌ای که کلِّ آن (با نوشتهٔ KPE) توی صفحه بیفتد
-        wm_row = 4 if long_tbl else max(3, tstart - 4)
+        # آرمِ کاملِ KPE — وسطِ صفحه و کاملاً داخل برگه (با نوشتهٔ KPE)
+        wm_row = 4 if long_tbl else _row_at_pt((PAGE_PT - 640 * 0.75) / 2, tstart, n)
         _watermark(s, wm_logo, [f"B{wm_row}"], 640)
         _one_page(s, parea, fit_h=fit_h, vcenter=False)
 
-        # ---- helperِ عددیِ مخفی برای نمودارها (ثابت از ردیف ۲؛ مستقل از جای جدول)
+        # ---- helperِ عددیِ مخفی برای نمودارها (ثابت از ردیف ۲؛ مستقل از جای جدول).
+        # عمداً دور از ناحیهٔ چاپ (ستون‌های T..X) تا پهنای چاپ کم نشود.
         h0 = 2
-        bar_rows = rows if bar_top is None else rows[:bar_top]
-        s.cell(h0, 8, headers[0])
-        s.cell(h0, 9, headers[1])
+        s.cell(h0, HB_CAT, headers[0])
+        s.cell(h0, HB_VAL, headers[1])
         for i, (nm, v) in enumerate(bar_rows, h0 + 1):
-            s.cell(i, 8, f"{nm} ({en2fa(v)})")    # نام + عددِ فارسی داخل برچسبِ محور
-            s.cell(i, 9, v)
+            s.cell(i, HB_CAT, f"{nm} ({en2fa(v)})")   # نام + عددِ فارسی داخل برچسبِ محور
+            s.cell(i, HB_VAL, v)
         bh_last = h0 + len(bar_rows)
-        for col in ("H", "I", "J", "K", "L"):
-            s.column_dimensions[col].hidden = True
+        for ci in range(HB_CAT, HP_VAL + 1):
+            s.column_dimensions[get_column_letter(ci)].hidden = True
+        bar_vals = [v for _, v in bar_rows]
 
+        # ---- نمودارِ میله‌ای روی خودِ شیت، از روی همین جدول
+        if bar_rows:
+            sh_bar = bar_chart(s, "تعداد " + title, h0, bh_last, cat_col=HB_CAT,
+                               val_col=HB_VAL, width=SH_CH_W,
+                               height=SH_CH_H + (1.5 if long_tbl else 0), values=bar_vals)
+            s.add_chart(sh_bar, f"B{chart_row}")
+
+        # ---- داشبورد
         strip(anchor[0], title)
         anchor[0] += 2
 
         wide = len(bar_rows) > 12
-        bc = bar_chart(s, "تعداد " + title, h0, bh_last, cat_col=8, val_col=9,
+        bc = bar_chart(s, "تعداد " + title, h0, bh_last, cat_col=HB_CAT, val_col=HB_VAL,
                        width=32 if wide else 20, height=13 if wide else 11,
-                       values=[v for _, v in bar_rows])
+                       values=bar_vals)
         dash.add_chart(bc, f"B{anchor[0]}")
         anchor[0] += 30 if wide else 24
 
         if chart_kind == "bar+pie":
             pie_rows = group_small(rows)
-            s.cell(h0, 11, headers[0])
-            s.cell(h0, 12, "درصد")
+            s.cell(h0, HP_CAT, headers[0])
+            s.cell(h0, HP_VAL, "درصد")
             tot = sum(v for _, v in pie_rows) or 1
             pcts = [round(v / tot * 100, 1) for _, v in pie_rows]
             for i, (nm, pc_) in enumerate(zip([p[0] for p in pie_rows], pcts), h0 + 1):
-                s.cell(i, 11, nm)
-                s.cell(i, 12, pc_)
+                s.cell(i, HP_CAT, nm)
+                s.cell(i, HP_VAL, pc_)
             pc = pie_chart(s, "درصد " + title, h0, h0 + len(pie_rows),
-                           cat_col=11, val_col=12, values=pcts)
+                           cat_col=HP_CAT, val_col=HP_VAL, values=pcts)
             dash.add_chart(pc, f"B{anchor[0]}")
-            anchor[0] += 20
+            anchor[0] += 19
+            cap = others_caption(rows)            # «سایر» شامل چه مواردی است
+            if cap:
+                # سه ردیفِ ادغام‌شده با فونتِ درشت (صفحهٔ داشبورد موقع چاپ کوچک می‌شود)
+                dash.merge_cells(start_row=anchor[0], start_column=2,
+                                 end_row=anchor[0] + 2, end_column=18)
+                _fill_range(dash, anchor[0], 2, anchor[0] + 2, 18, "FFFFFF")
+                cc = dash.cell(anchor[0], 2, cap)
+                cc.font = Font(size=13, color=INK)
+                cc.alignment = Alignment(horizontal="right", vertical="center",
+                                         wrap_text=True, readingOrder=2)
+                for k in range(3):
+                    dash.row_dimensions[anchor[0] + k].height = 24
+            anchor[0] += 4
 
         anchor[0] += 3
 
@@ -836,14 +937,28 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
     zs.sheet_view.showGridLines = False
     zs.sheet_properties.tabColor = "9AA7B4"
     zs.freeze_panes = "A3"
+    def _days_txt(d):
+        if d is None:
+            return "—"
+        return en2fa(d) if d >= 0 else "‎−" + en2fa(-d)       # منفی: «−۷» (با LRM تا سمتِ چپ نیفتد)
+
     prows = [[
         en2fa(fa2en(rec["radif"])), fa2en(rec["name"]), fa2en(rec["family"]),
         en2fa(fa2en(rec["req_date"])), en2fa(fa2en(rec["start_date"])),
-        en2fa(rec["_days"]) if rec["_days"] is not None else "—",
+        _days_txt(rec["_days"]),
     ] for rec in data]
-    write_table(zs, "فاصلهٔ تاریخ درخواست تا شروع به کار (روز)",
-                ["ردیف", "نام", "نام خانوادگی", "تاریخ درخواست", "شروع به کار", "زمان جذب (روز)"],
-                prows, start_col=5)
+    hr_z, _last_z = write_table(zs, "فاصلهٔ تاریخ درخواست تا شروع به کار (روز)",
+                                ["ردیف", "نام", "نام خانوادگی", "تاریخ درخواست",
+                                 "شروع به کار", "زمان جذب (روز)"],
+                                prows, start_col=5)
+    # ردیف‌هایی که شروع به کار «قبل از» درخواست ثبت شده → قرمز (احتمالاً اشتباهِ ثبت)
+    red = PatternFill("solid", fgColor="FDE9E7")
+    for i, rec in enumerate(data):
+        if rec["_days"] is not None and rec["_days"] < 0:
+            for cc in range(5, 11):
+                cell = zs.cell(hr_z + 1 + i, cc)
+                cell.fill = red
+                cell.font = Font(size=cell.font.size or 11, color="C0392B", bold=(cc == 10))
     zs.page_setup.orientation = "landscape"
     zs.page_setup.paperSize = zs.PAPERSIZE_A4
     zs.page_setup.fitToWidth = 1
@@ -866,7 +981,7 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
 
     sh_m = wb["جذب بر اساس ماه"]
     m_bar = bar_chart(sh_m, "جذب ماهانه", 2, 2 + len(metrics["by_month"]),
-                      cat_col=8, val_col=9, width=16, height=9,
+                      cat_col=HB_CAT, val_col=HB_VAL, width=16, height=9,
                       values=[v for _, v in metrics["by_month"]])
     ws.add_chart(m_bar, "B21")
 
@@ -874,24 +989,41 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
     p_pie_rows = group_small(metrics["by_project"])
     _ptot = sum(v for _, v in p_pie_rows) or 1
     p_pie = pie_chart(sh_p, "سهم پروژه‌ها از جذب", 2, 2 + len(p_pie_rows),
-                      cat_col=11, val_col=12, width=12, height=9,
+                      cat_col=HP_CAT, val_col=HP_VAL, width=12, height=9,
                       values=[round(v / _ptot * 100, 1) for _, v in p_pie_rows])
     ws.add_chart(p_pie, "I21")
 
-    _fill_range(ws, 40, 2, 40, 12, LIGHT)
-    ws.merge_cells("B40:M40")
-    ac = ws.cell(40, 2, "تحلیل و نتیجه‌گیری")
+    # توضیحِ «سایر» درست زیرِ نمودار دایره‌ای: چه مواردی، هرکدام چند نفر/چند درصد، و جمعشان
+    cap = others_caption(metrics["by_project"])
+    if cap:
+        ws.merge_cells("I39:M42")
+        thin_ = Side("thin", color="D6DEE8")
+        for rr in range(39, 43):
+            for cc in range(9, 14):
+                ws.cell(rr, cc).fill = PatternFill("solid", fgColor="F6F8FB")
+                ws.cell(rr, cc).border = Border(
+                    top=thin_ if rr == 39 else None, bottom=thin_ if rr == 42 else None,
+                    left=thin_ if cc == 9 else None, right=thin_ if cc == 13 else None)
+        cc_ = ws.cell(39, 9, cap)
+        cc_.font = Font(size=11, color=INK)
+        cc_.alignment = Alignment(horizontal="right", vertical="center",
+                                  wrap_text=True, readingOrder=2)
+
+    A0 = 44                                            # شروعِ بخشِ تحلیل (زیرِ توضیحِ «سایر»)
+    _fill_range(ws, A0, 2, A0, 12, LIGHT)
+    ws.merge_cells(start_row=A0, start_column=2, end_row=A0, end_column=13)
+    ac = ws.cell(A0, 2, "تحلیل و نتیجه‌گیری")
     ac.font = Font(bold=True, size=12, color=NAVY)
     ac.alignment = Alignment(horizontal="center", vertical="center")
 
-    ws.merge_cells("B41:M52")
-    body = ws.cell(41, 2, "\n".join("•  " + s for s in metrics.get("analysis", [])))
+    ws.merge_cells(start_row=A0 + 1, start_column=2, end_row=A0 + 12, end_column=13)
+    body = ws.cell(A0 + 1, 2, "\n".join("•  " + s for s in metrics.get("analysis", [])))
     body.font = Font(size=11, color=INK)
     body.alignment = Alignment(horizontal="right", vertical="top", wrap_text=True)
-    for rr in range(41, 53):
+    for rr in range(A0 + 1, A0 + 13):
         ws.row_dimensions[rr].height = 18
 
-    _one_page(ws, "A1:M55")
+    _one_page(ws, f"A1:M{A0 + 14}")
 
     wb.save(out_path)
 
