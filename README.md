@@ -67,7 +67,10 @@ needed for end users.
    `خروجی گزارش جذب - <name>.xlsx`.
 
 If the output file is already open in Excel, a timestamped copy is written
-instead of failing.
+next to it instead of failing. If the input's folder isn't writable at all
+(a read‑only network share, no permission, …), it falls back to your
+Desktop, then to a temp folder; only if none of those work do you get an
+error, naming every folder it tried.
 
 ---
 

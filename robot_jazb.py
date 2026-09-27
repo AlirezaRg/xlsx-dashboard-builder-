@@ -1166,14 +1166,36 @@ def make_report(src, folder=None, logo_path=None, years=None, wm_path=None, mont
         tag += f" - {ys[0]}" if len(ys) == 1 else f" - {ys[0]} تا {ys[-1]}"
     if months:
         tag += f" - {_month_label(set(months))}"
-    out = os.path.join(folder, f"خروجی گزارش جذب - {base}{tag}.xlsx")
+    fname = f"خروجی گزارش جذب - {base}{tag}.xlsx"
+    out = os.path.join(folder, fname)
     try:
         build_output(metrics, data, out, logo_path, wm_path)
+        return out, metrics
     except PermissionError:
-        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        out = out[:-5] + f" [{stamp}].xlsx"
-        build_output(metrics, data, out, logo_path, wm_path)
-    return out, metrics
+        pass    # فایلِ قبلی باز است یا خودِ پوشه فقط‌خواندنی است؛ پایین ادامه می‌دهیم
+
+    # تلاش دوم: همان پوشه با نامِ تاریخ‌دار (برای حالتِ «فایل قبلی باز است»)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    out2 = os.path.join(folder, fname[:-5] + f" [{stamp}].xlsx")
+    try:
+        build_output(metrics, data, out2, logo_path, wm_path)
+        return out2, metrics
+    except PermissionError:
+        pass    # پوشه اصلاً برای این کاربر قابل‌نوشتن نیست (مثلاً یک درایوِ شبکه‌ای/اشتراکی)
+
+    # تلاش سوم: پوشه‌ای که مطمئناً قابل‌نوشتن است (دسکتاپ کاربر، وگرنه پوشهٔ موقت)
+    fallback_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+    if not os.path.isdir(fallback_dir):
+        fallback_dir = tempfile.gettempdir()
+    out3 = os.path.join(fallback_dir, fname[:-5] + f" [{stamp}].xlsx")
+    try:
+        build_output(metrics, data, out3, logo_path, wm_path)
+    except PermissionError as e:
+        raise PermissionError(
+            f"نوشتن در «{folder}» و در «{fallback_dir}» هم امکان‌پذیر نشد. "
+            f"یک پوشه‌ای که مطمئناً در آن دسترسیِ نوشتن داری انتخاب کن و دوباره امتحان کن."
+        ) from e
+    return out3, metrics
 
 
 def main():
