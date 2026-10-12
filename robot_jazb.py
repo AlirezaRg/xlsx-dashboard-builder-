@@ -244,6 +244,45 @@ def _month_label(mset):
     return "، ".join(MONTH_NAME[m] for m in ms)
 
 
+def breakdown_by(key, pool):
+    """گروه‌بندیِ pool بر اساس فیلد key با کلید یکسان‌سازی‌شده؛ (اسمِ غالب, تعداد) نزولی.
+    همان منطقِ breakdown که build_metrics استفاده می‌کند — اینجا عمومی است تا برای
+    زیرمجموعه‌های دلخواه (مثلاً «فقط رکوردهای یک پروژه») هم به کار برود."""
+    groups = {}
+    for rec in pool:
+        raw = fa2en(rec[key])
+        if not raw:
+            continue
+        g = groups.setdefault(norm_key(raw), {"count": 0, "labels": Counter()})
+        g["count"] += 1
+        g["labels"][raw] += 1
+    out = [(g["labels"].most_common(1)[0][0], g["count"]) for g in groups.values()]
+    out.sort(key=lambda x: -x[1])
+    return out
+
+
+def month_breakdown(pool):
+    """(نامِ ماه، تعداد) به ترتیبِ مالیِ مهر..شهریور، برای یک زیرمجموعهٔ دلخواه از رکوردها."""
+    mc = Counter()
+    for rec in pool:
+        try:
+            mn = int(fa2en(rec["month"]))
+        except (ValueError, TypeError):
+            mn = None
+        if mn in MONTH_NAME:
+            mc[mn] += 1
+    return [(MONTH_NAME[m], mc[m]) for m in MONTH_ORDER if mc[m] > 0]
+
+
+def duration_stats(pool):
+    """(میانگین، میانه، تعدادِ رکوردهای معتبر) زمانِ جذب برای یک زیرمجموعهٔ دلخواه.
+    رکوردهایی که _days ندارند یا منفی‌اند (اشتباهِ ثبت) حساب نمی‌شوند."""
+    durations = [r["_days"] for r in pool if r.get("_days") is not None and r["_days"] >= 0]
+    if not durations:
+        return None, None, 0
+    return sum(durations) / len(durations), statistics.median(durations), len(durations)
+
+
 def build_metrics(data, years=None, months=None):
     """years : مجموعهٔ سال‌های شمسیِ «شروع به کار» (None = همهٔ سال‌ها).
     months: مجموعهٔ ماه‌های شمسی ۱..۱۲ (None = همهٔ ماه‌ها). با years «و» می‌شود."""
@@ -283,33 +322,10 @@ def build_metrics(data, years=None, months=None):
         else:
             rec["_days"] = None
 
-    def breakdown(key, pool):
-        """گروه‌بندی با کلید یکسان‌سازی‌شده تا نوشته‌های هم‌معنی با هم جمع شوند."""
-        groups = {}
-        for rec in pool:
-            raw = fa2en(rec[key])
-            if not raw:
-                continue
-            g = groups.setdefault(norm_key(raw), {"count": 0, "labels": Counter()})
-            g["count"] += 1
-            g["labels"][raw] += 1
-        out = [(g["labels"].most_common(1)[0][0], g["count"]) for g in groups.values()]
-        out.sort(key=lambda x: -x[1])
-        return out
-
-    by_project = breakdown("project", hired)
-    by_post = breakdown("post", hired)
-    by_unit = breakdown("unit", hired)
-
-    mc = Counter()
-    for rec in hired:
-        try:
-            mn = int(fa2en(rec["month"]))
-        except ValueError:
-            mn = None
-        if mn in MONTH_NAME:
-            mc[mn] += 1
-    by_month = [(MONTH_NAME[m], mc[m]) for m in MONTH_ORDER if mc[m] > 0]
+    by_project = breakdown_by("project", hired)
+    by_post = breakdown_by("post", hired)
+    by_unit = breakdown_by("unit", hired)
+    by_month = month_breakdown(hired)
 
     # بازهٔ زمانی گزارش (از روی تاریخ‌های شروع به کار)
     years = set()
@@ -970,6 +986,146 @@ def build_output(metrics, data, out_path, logo_path=None, wm_path=None):
               metrics["by_unit"], "bar+pie")
     add_block("جذب بر اساس پست", "جذب بر اساس پست (۲۰ ردیف نخست)", ["پست", "تعداد جذب"],
               metrics["by_post"], "bar", bar_top=20)
+
+    # ============================ یک شیتِ جداگانه برای هر پروژه ============================
+    MAX_PROJECT_SHEETS = 25
+    used_sheet_names = set(wb.sheetnames)
+
+    def safe_sheet_name(label):
+        bad = set(':\\/?*[]')
+        clean = "".join(c for c in label if c not in bad).strip() or "پروژه"
+        base = f"پروژه - {clean}"[:31]
+        out, i = base, 2
+        while out in used_sheet_names:
+            suf = f" {en2fa(i)}"
+            out = base[:31 - len(suf)] + suf
+            i += 1
+        used_sheet_names.add(out)
+        return out
+
+    def add_project_sheet(proj_label, proj_recs, total_hired):
+        s = wb.create_sheet(safe_sheet_name(proj_label))
+        s.sheet_view.rightToLeft = True
+        s.sheet_view.showGridLines = False
+        s.sheet_properties.tabColor = TEAL
+        for col in "ABCDEFGHIJKLM":
+            s.column_dimensions[col].width = 12
+        s.column_dimensions["A"].width = 3
+        s.page_setup.orientation = "portrait"
+        s.page_setup.paperSize = s.PAPERSIZE_A4
+        s.page_setup.fitToWidth = 1
+        s.page_setup.fitToHeight = 0
+        s.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+        s.print_options.horizontalCentered = True
+
+        n_this = len(proj_recs)
+        share = metrics_pct(n_this, total_hired)
+        brand_banner(s, 1, f"گزارش پروژه: {proj_label}", 2, 12,
+                     sub=f"{n_this} نفر از {total_hired} جذبِ کل ({share})  •  واحد منابع انسانی")
+
+        p_month = month_breakdown(proj_recs)
+        p_post = breakdown_by("post", proj_recs)
+        p_unit = breakdown_by("unit", proj_recs)
+        avg_d, med_d, n_d = duration_stats(proj_recs)
+
+        cards = [
+            ("تعداد جذب در این پروژه", en2fa(n_this), NAVY),
+            ("سهم از کل جذب", share, TEAL),
+            ("میانگین زمان جذب (روز)",
+             en2fa(f"{avg_d:.0f}") if avg_d is not None else "—", AMBER),
+            ("پرتکرارترین پست", p_post[0][0] if p_post else "—", BLUE),
+        ]
+        for (label, value, accent), (r, c) in zip(cards, [(6, 11), (6, 8), (6, 5), (6, 2)]):
+            kpi_card(s, r, c, label, value, accent)
+
+        PA = [f"در پروژهٔ «{proj_label}»، {n_this} نفر جذب شده‌اند که {share} از کلِّ جذب است."]
+        if p_month:
+            pk = max(p_month, key=lambda x: x[1])
+            PA.append(f"پرتراکم‌ترین ماه در این پروژه، {pk[0]} با {pk[1]} نفر است.")
+        if p_post:
+            PA.append(f"پرتکرارترین پست «{p_post[0][0]}» با {p_post[0][1]} نفر است.")
+        if p_unit:
+            PA.append(f"پرسهم‌ترین واحد «{p_unit[0][0]}» با {p_unit[0][1]} نفر است.")
+        if avg_d is not None:
+            PA.append(f"میانگین زمان جذب در این پروژه {avg_d:.0f} روز (میانهٔ {med_d:.0f} روز) "
+                      f"بر پایهٔ {n_d} رکورد است.")
+        PA = [en2fa(x) for x in PA]
+
+        row = 11
+        _fill_range(s, row, 2, row, 13, LIGHT)
+        s.merge_cells(start_row=row, start_column=2, end_row=row, end_column=13)
+        tc = s.cell(row, 2, "تحلیل این پروژه")
+        tc.font = Font(bold=True, size=12, color=NAVY)
+        tc.alignment = Alignment(horizontal="center", vertical="center")
+        row += 1
+        ar0, ar1 = row, row + max(len(PA), 1)
+        s.merge_cells(start_row=ar0, start_column=2, end_row=ar1, end_column=13)
+        body = s.cell(ar0, 2, "\n".join("•  " + x for x in PA))
+        body.font = Font(size=11, color=INK)
+        body.alignment = Alignment(horizontal="right", vertical="top", wrap_text=True)
+        for rr in range(ar0, ar1 + 1):
+            s.row_dimensions[rr].height = 18
+        row = ar1 + 3
+
+        for ci in (HB_CAT, HB_VAL):
+            s.column_dimensions[get_column_letter(ci)].hidden = True
+        hcur = [2]
+
+        def write_helper(rows_):
+            r0 = hcur[0]
+            s.cell(r0, HB_CAT, "برچسب")
+            s.cell(r0, HB_VAL, "تعداد")
+            for i, (nm, v) in enumerate(rows_, r0 + 1):
+                s.cell(i, HB_CAT, f"{nm} ({en2fa(v)})")
+                s.cell(i, HB_VAL, v)
+            hcur[0] = r0 + len(rows_) + 3
+            return r0, r0 + len(rows_)
+
+        def strip_local(txt):
+            nonlocal row
+            s.merge_cells(start_row=row, start_column=2, end_row=row, end_column=13)
+            _fill_range(s, row, 2, row, 13, LIGHT)
+            c = s.cell(row, 2, txt)
+            c.font = Font(bold=True, size=12, color=NAVY)
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            s.row_dimensions[row].height = 20
+            row += 2
+
+        def chart_block(title, rows_, top=None, with_line=False):
+            nonlocal row
+            if not rows_:
+                return
+            use_rows = rows_ if top is None else rows_[:top]
+            strip_local(title)
+            r0, r1 = write_helper(use_rows)
+            wide = len(use_rows) > 12
+            bar = bar_chart(s, "تعداد " + title, r0, r1, cat_col=HB_CAT, val_col=HB_VAL,
+                            width=27 if wide else 18, height=11 if wide else 7,
+                            values=[v for _, v in use_rows])
+            s.add_chart(bar, f"B{row}")
+            row += (25 if wide else 16)
+            if with_line:
+                line = line_chart(s, "نمودار خطیِ " + title, r0, r1, cat_col=HB_CAT,
+                                  val_col=HB_VAL, width=18, height=6)
+                s.add_chart(line, f"B{row}")
+                row += 14
+            row += 2
+
+        chart_block("جذب بر اساس ماه", p_month, with_line=True)
+        chart_block("جذب بر اساس پست", p_post, top=15)
+        chart_block("جذب بر اساس واحد", p_unit, top=15)
+
+        # واترمارک و محدودهٔ چاپ را بر اساسِ طولِ واقعیِ محتوا می‌گذاریم (نه یک عددِ ثابت)
+        # وگرنه شیتِ کوتاه (یک پروژهٔ کوچک) چند صفحهٔ خالی اضافه می‌گیرد.
+        s.print_area = f"A1:M{max(row - 1, 40)}"
+        _watermark(s, wm_logo, [f"A{r}" for r in range(10, max(row - 1, 60), 48)], 700)
+
+    hired_recs = [r for r in data if r.get("_g_start") is not None]
+    for proj_label, _cnt in metrics["by_project"][:MAX_PROJECT_SHEETS]:
+        pkey = norm_key(proj_label)
+        proj_recs = [r for r in hired_recs if norm_key(fa2en(r["project"])) == pkey]
+        if proj_recs:
+            add_project_sheet(proj_label, proj_recs, metrics["hired"])
 
     zs = wb.create_sheet("زمان جذب")
     zs.sheet_view.rightToLeft = True

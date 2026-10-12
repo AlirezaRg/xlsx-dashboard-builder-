@@ -24,6 +24,11 @@ needed for end users.
   many people each item is and its share, and their total
   (e.g. `«سایر» = ۱٫۵٪ (۵ نفر) شامل: اروند: ۳ نفر (۰٫۹٪) • کیش: ۱ نفر (۰٫۳٪) • …`).
   It is shown even when “other” contains just one item.
+- **A sheet per project** — besides the combined breakdowns, every distinct
+  `محل خدمت` value gets its own sheet (`پروژه - <name>`): KPI cards scoped
+  to that project (count, share of total hires, average duration, top
+  role), a short auto‑written analysis, and month / role / unit charts
+  built only from that project's rows. Capped at 25 projects.
 - **Per‑breakdown sheets** — one styled table per dimension
   (by month / by project / by unit / by role), big fonts, **plus a bar
   chart and a line chart (2‑D Line with Markers) built from that same
@@ -113,6 +118,7 @@ as a **transparent** PNG.
 | `گزارش مدیریتی` | management one‑pager (KPIs + 2 charts + analysis) |
 | `داشبورد` | all bar + pie charts |
 | `جذب بر اساس ماه` / `... پروژه` / `... واحد` / `... پست` | one styled table each |
+| `پروژه - <name>` | one sheet per project (`محل خدمت`) — its own KPI cards, a short written analysis, and month/role/unit breakdowns with charts, scoped to that project only |
 | `زمان جذب` | per‑row request→start gap in days (negatives in red) |
 
 ---
